@@ -8,25 +8,16 @@ Created on Wed Jan 17 14:09:31 2024
 import os
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import mpl_toolkits.axes_grid1.inset_locator as mpl_il
-import urllib.request
-import urllib.parse
-import numpy as np
-import csv
 
-from scipy.optimize import curve_fit
-from scipy.interpolate import interp1d
-from shapely.geometry import Point
-from io import BytesIO
-from zipfile import ZipFile
-from sklearn.metrics import r2_score
 from scipy.optimize import minimize
-from sklearn.metrics import mean_squared_error
 import math
 from scipy.optimize import least_squares
+
+import matplotlib
+# matplotlib.rcParams['mathtext.fontset'] = 'stix'
+# matplotlib.rcParams['font.family'] = 'STIXGeneral'
+
 ## use model
 modelvg = lambda x, alpha, n, m, thetas, thetar: ((1+(alpha*x)**n)**-m)*(thetas-thetar)+thetar
 
@@ -69,7 +60,7 @@ def get_x0_y0_r_split(EL_data, alpha, n, m, theta_s, theta_r, initial_s, initial
     arctans_f = []
     derivatives = []
     arctans = []
-    EC_data = modelvg(EL_data / -10, alpha, n, m, theta_s, theta_r) * 100000 / 1000
+    EC_data = modelvg(EL_data / -10, alpha, n, m, theta_s, theta_r) * 100000 / 1000 # unit: mS/cm
     mid_EC = (0.5 * (theta_r - theta_s) + theta_s) * 100
     for i in range(1, len(EL_data)):
         d_EL = EL_data[i] - EL_data[i - 1]
@@ -143,11 +134,24 @@ def plot_circle_s(x0, y0, r, ax, color):
     y = y0 + r * np.sin(theta)
     ax.plot(x, y, color = color,linestyle = '--')#, label = f"r2 = {r:.1f} "
     ax.axis('equal')     
+    
+# plt.rcParams.update({
+#     'font.size': 11,
+#     'text.usetex': False,
+#     'font.family': 'Serif',
+#     'font.serif': ['Times New Roman']
+# })
 
-plt.rcParams.update({'font.size': 11})
-plt.rcParams['font.family'] = 'Times New Roman'
+plt.rc('font', **{'family': 'serif', 'serif': ['Times'], 'size': 11})
+plt.rc('text', usetex=True)
+# rc('font',**{'family':'serif','serif':['Times'], 'size': 11})
+# rc('text', usetex=True)
+# matplotlib.rcParams['text.usetex'] = True
+# matplotlib.rcParams['text.latex.preamble'] = [
+#     r'\usepackage{amsmath}',
+#     r'\usepackage{amssymb}',
+#     r'\usepackage{times}']
 
-buf = 1000  # m
 z_r = lambda target, alpha, n, m, cf, cs: ((((target/100000-cs)/(cf-cs))**(-1/m)-1)**(1/n))/alpha*-10
 # this s_m is derivative of EC in terms of z (EC gradients per m AHD)
 s_m = lambda C, alpha, n, m, thetas, thetar: (10**n * (10**n * (-1 + ((thetas - thetar) / (C - thetar))**(1/m)))**(-1 + 1/n) * (thetas - thetar) * ((thetas - thetar) / (C - thetar))**(-1 + 1/m)) / alpha / (C - thetar)**2 / m / n  
@@ -161,7 +165,8 @@ file_path = f"LS_SCREEN_AHD_dataset_delete.xlsx"
 data = pd.read_excel(file_path)
 data['RDATE']=pd.to_datetime(data['RDATE'], dayfirst=True)#, format='%d/%m/%Y %H:%M:%S'
 data = data.sort_values(by=['RN', 'RDATE'])
-# data = data[data['RN']==12000969]
+data = data[data['RN']==12000969]
+# data = data[data['RDATE']=='1992-01-29 00:00:00'] # this is to check the results of r2 and rmse in comparison with results in excel LS_SCREEN_AHD_dataset_delete sheet2. 
 data_g = data.groupby(['RN','RDATE'])
 rn_color_dict = {}
 colors = ['b', 'g', 'r', 'c', 'm', 'y', 'k', 'purple', 'orange', 'brown', 'pink', 'gray', 'olive']
@@ -196,23 +201,138 @@ i=0
                                        # 'weighted error n', 'weighted error m',
                                        # 'rf','rs'])
 paras_circles = []                                      
-fig = plt.figure(figsize=(9*2, 12*2))
-# fig.suptitle('modelvg = lambda x, alpha, n, m, thetas, thetar: ((1+(alpha*x)**n)**-m)*(thetas-thetar)+thetar\n')
-fig2 = plt.figure(figsize=(9*2, 12*2))
-fig3 = plt.figure(figsize=(9*2, 12*2))# Filter ele DataFrame for the current group
+# fig = plt.figure(figsize=(16.5/2.54, 25/2.54))
+fig, axes = plt.subplots(
+    nrows=4, ncols=3,
+    figsize=(17/2.54, 25/2.54),
+    gridspec_kw={
+        'wspace': 0.1,
+        'hspace': 0.25,
+        # 'width_ratios': [7.5,6],
+        # 'height_ratios': [subplot_size[1]]*2,
+        'left': 0.1,    # Adjust this value to set the distance from the left boundary
+        'right': 0.98,   # Adjust this value to set the distance from the right boundary
+        'bottom': 0.05,  # Adjust this value to set the distance from the bottom boundary
+        'top': 0.95      # Adjust this value to set the distance from the top boundary
+    },
+    sharey=True
+)
+for i, ax_row in enumerate(axes):
+    for j, ax in enumerate(ax_row):
+        ax.set_ylim([-55, 0])
+        ax.set_xlim([0, 90])
+        ax.set_xticks([0, 20, 40, 60, 80])
+
+        # Show x-axis tick labels only for the last row of subplots
+        if i == len(axes) - 1:
+            ax.set_xticklabels([0, 20, 40, 60, 80])
+            ax.set_xlabel('EC (mS/cm)')  # Set your desired x-axis tick positions
+
+        # Set ylabel only on the first column for all rows except the last one
+        if j == 0 and i != len(axes) - 1:
+            ax.set_ylabel('Elevation (mAHD)')
+            ax.set_xticklabels([])
+        if j == 0 and i == len(axes) - 1:
+            ax.set_ylabel('Elevation (mAHD)')
+            ax.set_xticklabels([0, 20, 40, 60, 80])
+
+        # Set x-axis tick labels to an empty list for all rows except the last one
+        elif i != len(axes) - 1:
+            ax.set_xticklabels([])
+
+
+fig2, axes2 = plt.subplots(
+    nrows=4, ncols=3,
+    figsize=(17/2.54, 25/2.54),
+    gridspec_kw={
+        'wspace': 0.1,
+        'hspace': 0.25,
+        # 'width_ratios': [7.5,6],
+        # 'height_ratios': [subplot_size[1]]*2,
+        'left': 0.1,    # Adjust this value to set the distance from the left boundary
+        'right': 0.98,   # Adjust this value to set the distance from the right boundary
+        'bottom': 0.05,  # Adjust this value to set the distance from the bottom boundary
+        'top': 0.95      # Adjust this value to set the distance from the top boundary
+    },
+    sharey=True
+)
+for i, ax_row in enumerate(axes2):
+    for j, ax in enumerate(ax_row):
+        ax.set_ylim([-55, 0])
+        ax.set_xlim([0, 90])
+        ax.set_xticks([0, 20, 40, 60, 80])
+
+        # Show x-axis tick labels only for the last row of subplots
+        if i == len(axes2) - 1:
+            ax.set_xticklabels([0, 20, 40, 60, 80])
+            ax.set_xlabel('EC (mS/cm)')  # Set your desired x-axis tick positions
+
+        # Set ylabel only on the first column for all rows except the last one
+        if j == 0 and i != len(axes2) - 1:
+            ax.set_ylabel('Elevation (mAHD)')
+            ax.set_xticklabels([])
+        if j == 0 and i == len(axes2) - 1:
+            ax.set_xticklabels([0, 20, 40, 60, 80])
+            ax.set_ylabel('Elevation (mAHD)')
+
+        # Set x-axis tick labels to an empty list for all rows except the last one
+        elif i != len(axes2) - 1:
+            ax.set_xticklabels([])
+
+fig3, axes3 = plt.subplots(
+    nrows=4, ncols=3,
+    figsize=(17/2.54, 25/2.54),
+    gridspec_kw={
+        'wspace': 0.1,
+        'hspace': 0.25,
+        # 'width_ratios': [7.5,6],
+        # 'height_ratios': [subplot_size[1]]*2,
+        'left': 0.1,    # Adjust this value to set the distance from the left boundary
+        'right': 0.98,   # Adjust this value to set the distance from the right boundary
+        'bottom': 0.05,  # Adjust this value to set the distance from the bottom boundary
+        'top': 0.95      # Adjust this value to set the distance from the top boundary
+    },
+    sharey=True
+)
+for i, ax_row in enumerate(axes3):
+    for j, ax in enumerate(ax_row):
+        ax.set_ylim([-55, 0])
+        ax.set_xlim([0, 90])
+        ax.set_xticks([0, 20, 40, 60, 80])
+
+        # Show x-axis tick labels only for the last row of subplots
+        if i == len(axes3) - 1:
+            ax.set_xticklabels([0, 20, 40, 60, 80])
+            ax.set_xlabel('EC (mS/cm)')  # Set your desired x-axis tick positions
+
+        # Set ylabel only on the first column for all rows except the last one
+        if j == 0 and i != len(axes3) - 1:
+            ax.set_ylabel('Elevation (mAHD)')
+            ax.set_xticklabels([])
+        if j == 0 and i == len(axes3) - 1:
+            ax.set_xticklabels([0, 20, 40, 60, 80])
+            ax.set_ylabel('Elevation (mAHD)')
+
+        # Set x-axis tick labels to an empty list for all rows except the last one
+        elif i != len(axes3) - 1:
+            ax.set_xticklabels([])
+
+i=0
 for (RN,date), df in data_g:
         # formatted_date = date.strftime('%Y-%m-%d')  # Format as YYYY-MM-DD_HH-MM-SS
     df = df.sort_values(['DEPTH_R'], ascending=False)
     i=i+1
-    if 0<i<17:
-        ax = fig.add_subplot(4, 4, i)
+    if 0<i<13:
+        # ax = axes[i]
+        ax = axes[(i-1) // 3, (i-1) % 3]
+        # ax = fig.add_subplot(8, 5, i)
 
         color = pipe_color_dict[pipe]  # Get the color for this PIPE value
         ax.scatter(df['MEASUREMENT']/1000, df['DEPTH_R'], marker='o', color=color, s=12,facecolor = 'none')
 
-        combined_df2 = pd.concat([combined_df2, df], ignore_index=True)
+        # combined_df2 = pd.concat([combined_df2, df], ignore_index=True)
         # fit
-        matric = np.linspace(0, 7, 1000)
+        matric = np.linspace(0, 5.5, 1000)
         xdata = -df['DEPTH_R']/10
         ydata = df['MEASUREMENT']/100000
         result = minimize(
@@ -232,37 +352,40 @@ for (RN,date), df in data_g:
         # plt.plot(y_fitvg*100000,matric*(-10),  '-y', label='VG curve with regulization',linewidth=2)
         # r_squared = r2_score(ydata,modelvg(xdata, a1,a2,a3,a4,a5))
         # # rmse = np.sqrt(mean_squared_error(ydata, modelvg(xdata, a1,a2,a3,a4,a5)))
-        # r_squared = 1 - np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2)/np.sum((ydata-np.mean(ydata))**2)
-        # rmse = np.sqrt(np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2))/len(ydata)
+        r_squared = 1 - np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2)/np.sum((ydata-np.mean(ydata))**2)
+        rmse = np.sqrt(np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2))/len(ydata)
         # ax.set_title(f"RN {RN:.0f}\n{date}")
-        ax.set_title(f"RN {RN:.0f}\n{date.strftime('%Y-%m-%d')}")
-        ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r',
-                # label=f"alpha={a1:.2f}\nn={a2:.2f}\nm={a3:.2f}\nthetas={a4:.2f}\nthetar={a5:.2f}\nR2={r_squared:.2f}\nRMSE={rmse:.2f}\nrf={r_f:.1f}\nrs={r_s:.1f}"
-                linewidth=2)# print(yba)
+        ax.set_title(f"RN {RN:.0f}\n{date.strftime('%Y-%m-%d')}",fontsize = 11)
+        ax.plot(y_fitvg * 100000 / 1000, matric * (-10),  '-r',
+        label=f"$\\alpha$={a1:.2f}\n$n$={a2:.0f}\n$m$={a3:.3f}\n$C_f$={a4:.3f}\n$C_s$={a5:.2f}\n$R^2$={r_squared:.2f}\nRMSE={rmse:.4f}",
+        linewidth=2)
         # print(f"date: {date}, zi = {zi}")
         # ax.plot(interface * 100000 / 1000, zi, marker='o', markersize=2, color='r',
         #          markerfacecolor='r', linestyle='--')
 
-        # ax.legend()
-        
+        # ax.legend(handlelength=0, handletextpad=0,loc='best',fontsize = 10)
+        legend = ax.legend(handlelength=0, handletextpad=0, loc='upper right',fontsize=10,
+                           frameon=False)
+        legend.get_frame().set_facecolor('none')  # Set background color to none
+        legend.get_frame().set_linewidth(0)
         row = {"RN": RN, 'RDATE': date,
                'alpha': a1, 'n': a2, 'm': a3,'thetas':a4,'thetar':a5, 
-               # 'R2': r_squared,'RMSE':rmse,
+               'R2': r_squared,'RMSE':rmse,
                # # 'zf':zf, 'zs':zs, 'zi':zi}
                 'total error':total_error, 'weighted error obs': e1, 'weighted error alpha': e2*1e-1,
                 'weighted error n': e3* 1e-7 , 'weighted error m': e4* 1e-3,}
                 # 'rf':r_f,'rs':r_s}
     figure_path = os.path.join(f"{RN}_1_screen_AHD_SI.tif")
-    fig.savefig(figure_path, dpi = 150) 
-    if 33> i > 16:
-        ax = fig2.add_subplot(4, 4, i-16)
+    fig.savefig(figure_path, dpi = 300, pil_kwargs={"compression": "tiff_lzw"}) 
+    if 12 < i < 25:
+        ax = axes2[(i-13) // 3, (i-13) % 3]
 
         color = pipe_color_dict[pipe]  # Get the color for this PIPE value
         ax.scatter(df['MEASUREMENT']/1000, df['DEPTH_R'], marker='o', color=color, s=12,facecolor = 'none')
 
         combined_df2 = pd.concat([combined_df2, df], ignore_index=True)
         # fit
-        matric = np.linspace(0, 8.5, 1000)
+        matric = np.linspace(0, 5.5, 1000)
         xdata = -df['DEPTH_R']/10
         ydata = df['MEASUREMENT']/100000
         result = minimize(
@@ -280,11 +403,14 @@ for (RN,date), df in data_g:
         individual_errors = calculate_errors(optimal_parameters, xdata, ydata, preferred_params)
         e1, e2, e3, e4 = individual_errors
         # plt.plot(y_fitvg*100000,matric*(-10),  '-y', label='VG curve with regulization',linewidth=2)
-        # r_squared = r2_score(ydata,modelvg(xdata, a1,a2,a3,a4,a5))
-        # # rmse = np.sqrt(mean_squared_error(ydata, modelvg(xdata, a1,a2,a3,a4,a5)))
-        # # r_squared = 1 - np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2)/np.sum((ydata-np.mean(ydata))**2)
-        #  # rmse = np.sqrt(mean_squared_error(ydata[2:], modelvg(xdata[2:], a1,a2,a3,a4,a5)))
-        # rmse = np.sqrt(np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2))/len(ydata)
+        r_squared = 1 - np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2)/np.sum((ydata-np.mean(ydata))**2)
+        rmse = np.sqrt(np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2))/len(ydata)
+        # ax.set_title(f"RN {RN:.0f}\n{date}")
+        ax.set_title(f"RN {RN:.0f}\n{date.strftime('%Y-%m-%d')}",fontsize = 11)
+        ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r',
+                label=f"$\\alpha$={a1:.2f}\n$n$={a2:.0f}\n$m$={a3:.3f}\n$C_f$={a4:.3f}\n$C_s$={a5:.2f}\n$R^2$={r_squared:.2f}\nRMSE={rmse:.4f}",
+                # \nrf={r_f:.1f}\nrs={r_s:.1f}",
+                linewidth=2)# print(yba)
         # x0_s, y0_s, r_s, x0_f, y0_f, r_f = get_x0_y0_r_split(
         #                         matric*-10, a1, a2, a3,a4,a5, initial_s, initial_f,
         #                         99, 97)   #perc_s, perc_f
@@ -293,31 +419,35 @@ for (RN,date), df in data_g:
         # ax.plot(x0_f,y0_f,'orange',marker = 'o',markerfacecolor='orange',markersize = 2)
         # plot_circle_s(x0_s, y0_s, r_s, ax, 'g')
         # ax.plot(x0_s,y0_s,'orange',marker = 'o',markerfacecolor='orange',markersize = 2)
-        ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r'
-                # label=f"alpha={a1:.2f}\nn={a2:.2f}\nm={a3:.2f}\nthetas={a4:.2f}\nthetar={a5:.2f}\nR2={r_squared:.2f}\nRMSE={rmse:.2f}\nrf={r_f:.1f}\nrs={r_s:.1f}"
-               ,linewidth=2)
-        ax.set_title(f"RN {RN:.0f}\n{date}")
-        ax.legend()
+        # ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r'
+        #         # label=f"alpha={a1:.2f}\nn={a2:.2f}\nm={a3:.2f}\nthetas={a4:.2f}\nthetar={a5:.2f}\nR2={r_squared:.2f}\nRMSE={rmse:.2f}\nrf={r_f:.1f}\nrs={r_s:.1f}"
+        #        ,linewidth=2)
+        
+        # ax.legend(handlelength=0, handletextpad=0,loc='best',fontsize = 10)
+        legend = ax.legend(handlelength=0, handletextpad=0, loc='upper right', fontsize=10,
+                           frameon=False)
+        legend.get_frame().set_facecolor('none')  # Set background color to none
+        legend.get_frame().set_linewidth(0)
         row = {"RN": RN, 'RDATE': date,
                'alpha': a1, 'n': a2, 'm': a3,'thetas':a4,'thetar':a5, 
-               # 'R2': r_squared,'RMSE':rmse,
+               'R2': r_squared,'RMSE':rmse,
                 'total error':total_error, 'weighted error obs': e1, 'weighted error alpha': e2*1e-1,
                 'weighted error n': e3* 1e-7 , 'weighted error m': e4* 1e-3,}
                 # 'rf':r_f,'rs':r_s}
     figure_path = os.path.join(f"{RN}_2_screen_AHD_fit_SI.tif")
-    fig2.savefig(figure_path, dpi = 150)
+    fig2.savefig(figure_path, dpi = 300, pil_kwargs={"compression": "tiff_lzw"})
 
         
     
-    if 49 > i > 32:
-        ax = fig3.add_subplot(4, 4, i-32)
+    if 37 > i > 24:
+        ax = axes3[(i-25) // 3, (i-25) % 3]
 
         color = pipe_color_dict[pipe]  # Get the color for this PIPE value
         ax.scatter(df['MEASUREMENT']/1000, df['DEPTH_R'], marker='o', color=color, s=12,facecolor = 'none')
 
         combined_df2 = pd.concat([combined_df2, df], ignore_index=True)
         # fit
-        matric = np.linspace(0, 8.5, 1000)
+        matric = np.linspace(0, 5.5, 1000)
         xdata = -df['DEPTH_R']/10
         ydata = df['MEASUREMENT']/100000
         result = minimize(
@@ -335,12 +465,14 @@ for (RN,date), df in data_g:
         individual_errors = calculate_errors(optimal_parameters, xdata, ydata, preferred_params)
         e1, e2, e3, e4 = individual_errors
         # plt.plot(y_fitvg*100000,matric*(-10),  '-y', label='VG curve with regulization',linewidth=2)
-        # r_squared = r2_score(ydata,modelvg(xdata, a1,a2,a3,a4,a5))
-        # # rmse = np.sqrt(mean_squared_error(ydata, modelvg(xdata, a1,a2,a3,a4,a5)))
-        # # r_squared = 1 - np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2)/np.sum((ydata-np.mean(ydata))**2)
-        #  # rmse = np.sqrt(mean_squared_error(ydata[2:], modelvg(xdata[2:], a1,a2,a3,a4,a5)))
-        # rmse = np.sqrt(np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2))/len(ydata)
-        # x0_s, y0_s, r_s, x0_f, y0_f, r_f = get_x0_y0_r_split(
+        r_squared = 1 - np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2)/np.sum((ydata-np.mean(ydata))**2)
+        rmse = np.sqrt(np.sum((ydata - modelvg(xdata, a1,a2,a3,a4,a5))**2))/len(ydata)
+        # ax.set_title(f"RN {RN:.0f}\n{date}")
+        ax.set_title(f"RN {RN:.0f}\n{date.strftime('%Y-%m-%d')}")
+        ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r',
+                label=f"$\\alpha$={a1:.2f}\n$n$={a2:.0f}\n$m$={a3:.3f}\n$C_f$={a4:.3f}\n$C_s$={a5:.2f}\n$R^2$={r_squared:.2f}\nRMSE={rmse:.4f}",
+                # \nrf={r_f:.1f}\nrs={r_s:.1f}",
+                linewidth=2)# print(yba)        # x0_s, y0_s, r_s, x0_f, y0_f, r_f = get_x0_y0_r_split(
         #                         matric*-10, a1, a2, a3,a4,a5, initial_s, initial_f,
         #                         99, 98)   #perc_s, perc_f
 
@@ -348,16 +480,20 @@ for (RN,date), df in data_g:
         # ax.plot(x0_f,y0_f,'orange',marker = 'o',markerfacecolor='orange',markersize = 2)
         # plot_circle_s(x0_s, y0_s, r_s, ax, 'g')
         # ax.plot(x0_s,y0_s,'orange',marker = 'o',markerfacecolor='orange',markersize = 2)
-        ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r'
-               # label=f"alpha={a1:.2f}\nn={a2:.2f}\nm={a3:.2f}\nthetas={a4:.2f}\nthetar={a5:.2f}\nR2={r_squared:.2f}\nRMSE={rmse:.2f}\nrf={r_f:.1f}\nrs={r_s:.1f}"
-               ,linewidth=2)
-        ax.set_title(f"RN {RN:.0f}\n{date}")
-        ax.legend()
+        # ax.plot(y_fitvg*100000/1000,matric*(-10),  '-r'
+        #        # label=f"alpha={a1:.2f}\nn={a2:.2f}\nm={a3:.2f}\nthetas={a4:.2f}\nthetar={a5:.2f}\nR2={r_squared:.2f}\nRMSE={rmse:.2f}\nrf={r_f:.1f}\nrs={r_s:.1f}"
+        #        ,linewidth=2)
+        ax.set_title(f"RN {RN:.0f}\n{date.strftime('%Y-%m-%d')}",fontsize = 11)
+        # ax.legend(handlelength=0, handletextpad=0,loc='best',fontsize = 10)
+        legend = ax.legend(handlelength=0, handletextpad=0, loc='upper right', fontsize=10, frameon=False)
+        legend.get_frame().set_facecolor('none')  # Set background color to none
+        legend.get_frame().set_linewidth(0)
+
         figure_path = os.path.join(f"{RN}_3_screen_AHD_fit_SI.tif")
-        fig3.savefig(figure_path, dpi = 150)
+        fig3.savefig(figure_path, dpi = 300, pil_kwargs={"compression": "tiff_lzw"})
         row = {"RN": RN, 'RDATE': date,
                'alpha': a1, 'n': a2, 'm': a3,'thetas':a4,'thetar':a5, 
-               # 'R2': r_squared,'RMSE':rmse,
+               'R2': r_squared,'RMSE':rmse,
                 'total error':total_error, 'weighted error obs': e1, 'weighted error alpha': e2*1e-1,
                 'weighted error n': e3* 1e-7 , 'weighted error m': e4* 1e-3,}
                 # 'rf':r_f,'rs':r_s}
@@ -378,7 +514,7 @@ paras_circles_df = pd.DataFrame(paras_circles)
     
     # ax.set_title(f'RN {RN:.0f}', fontsize=12)    
 plt.tight_layout()
-paras_circles_df.to_excel(os.path.join(f"LS_LBD_paras_VG_SupportingInfo.xlsx"),index=False)
+paras_circles_df.to_excel(os.path.join(f"LS_LBD_paras_VG_SupportingInfo_5.xlsx"),index=False)
 # plt.savefig('MC_bores_LBD_filtered_screen_mz_AHD.tiff',dpi=300)
 
 
